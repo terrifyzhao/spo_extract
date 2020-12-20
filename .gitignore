@@ -128,6 +128,14 @@ dmypy.json
 # Pyre type checker
 .pyre/
 .idea
-bert/
-data/
+
+/bert/*
+!/bert/.gitkeep
+
+/data/*
+!/data/.gitkeep
+
 graph_model.bin
+
+
+
