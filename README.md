@@ -22,3 +22,4 @@ https://huggingface.co/hfl/chinese-roberta-wwm-ext/tree/main
 
 ## model structure
 
+![](https://raw.githubusercontent.com/terrifyzhao/spo_extract/main/structure.png)
