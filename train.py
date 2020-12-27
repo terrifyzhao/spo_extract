@@ -154,6 +154,26 @@ loss_func = torch.nn.BCELoss()
 model.train()
 
 
+class SPO(tuple):
+    """用来存三元组的类
+    表现跟tuple基本一致，只是重写了 __hash__ 和 __eq__ 方法，
+    使得在判断两个三元组是否等价时容错性更好。
+    """
+
+    def __init__(self, spo):
+        self.spox = (
+            spo[0],
+            spo[1],
+            spo[2],
+        )
+
+    def __hash__(self):
+        return self.spox.__hash__()
+
+    def __eq__(self, spo):
+        return self.spox == spo.spox
+
+
 def train_func():
     train_loss = 0
     pbar = tqdm(train_loader)
@@ -187,13 +207,18 @@ def train_func():
         if step % 1000 == 0:
             torch.save(model, 'graph_model.bin')
 
-        if step % 50 == 0 and step != 0:
+        if step % 100 == 0 and step != 0:
             with torch.no_grad():
-                spo = []
-                texts = ['如何演好自己的角色，请读《演员自我修养》《喜剧之王》周星驰崛起于穷困潦倒之中的独门秘笈',
-                         '茶树茶网蝽，Stephanitis chinensis Drake，属半翅目网蝽科冠网椿属的一种昆虫',
-                         '爱德华·尼科·埃尔南迪斯（1986-），是一位身高只有70公分哥伦比亚男子，体重10公斤，只比随身行李高一些，2010年获吉尼斯世界纪录正式认证，成为全球当今最矮的成年男人']
-                for text in texts:
+                # texts = ['如何演好自己的角色，请读《演员自我修养》《喜剧之王》周星驰崛起于穷困潦倒之中的独门秘笈',
+                #          '茶树茶网蝽，Stephanitis chinensis Drake，属半翅目网蝽科冠网椿属的一种昆虫',
+                #          '爱德华·尼科·埃尔南迪斯（1986-），是一位身高只有70公分哥伦比亚男子，体重10公斤，只比随身行李高一些，2010年获吉尼斯世界纪录正式认证，成为全球当今最矮的成年男人']
+                X, Y, Z = 1e-10, 1e-10, 1e-10
+                pbar = tqdm()
+                for data in valid_data[0:100]:
+                    spo = []
+                    # for text in texts:
+                    text = data['text']
+                    spo_ori = data['spo_list']
                     en = tokenizer(text=text, return_tensors='pt')
                     _, subject_preds = subject_model(en.input_ids.to(device), en.attention_mask.to(device))
                     subject_preds = subject_preds.cpu().data.numpy()
@@ -227,7 +252,23 @@ def train_func():
                                             predicate = id2predicate[str(predicate1)]
                                             # print(object, '\t', predicate)
                                             spo.append([subject, predicate, object])
-                print(spo)
+                    # 预测结果
+                    R = set([SPO(_spo) for _spo in spo])
+                    # 真实结果
+                    T = set([SPO(_spo) for _spo in spo_ori])
+                    # R = set(spo_ori)
+                    # T = set(spo)
+                    # 交集
+                    X += len(R & T)
+                    Y += len(R)
+                    Z += len(T)
+                    f1, precision, recall = 2 * X / (Y + Z), X / Y, X / Z
+                    pbar.update()
+                    pbar.set_description(
+                        'f1: %.5f, precision: %.5f, recall: %.5f' % (f1, precision, recall)
+                    )
+                pbar.close()
+                print('f1:', f1, 'precision:', precision, 'recall:', recall)
 
 
 for epoch in range(100):
