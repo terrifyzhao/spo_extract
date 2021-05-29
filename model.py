@@ -34,7 +34,9 @@ class ObjectModel(nn.Module):
 
         subject_position = self.dense_subject_position(subject_position).unsqueeze(1)
         object_out = output + subject_position
+        # [bs, 768] -> [bs, 98]
         object_out = self.dense_object(object_out)
+        # [bs, 98] -> [bs, 49, 2]
         object_out = torch.reshape(object_out, (object_out.shape[0], object_out.shape[1], 49, 2))
         object_out = torch.sigmoid(object_out)
         object_out = torch.pow(object_out, 4)

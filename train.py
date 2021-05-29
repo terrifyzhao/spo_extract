@@ -2,7 +2,7 @@ import json
 from tqdm import tqdm
 import os
 import numpy as np
-from transformers import BertTokenizer, AdamW
+from transformers import BertTokenizer, AdamW, BertTokenizerFast
 import torch
 from model import ObjectModel, SubjectModel
 
@@ -18,7 +18,7 @@ with open('bert/vocab.txt', encoding='utf_8')as file:
 
 def load_data(filename):
     """加载数据
-    单条格式：{'text': text, 'spo_list': [[s, p, o]]}
+    单条格式：{'text': text, 'spo_list': [[s, p, o],[s, p, o]]}
     """
     with open(filename, encoding='utf-8') as f:
         json_list = json.load(f)
@@ -29,7 +29,7 @@ def load_data(filename):
 train_data = load_data('data/train.json')
 valid_data = load_data('data/dev.json')
 
-tokenizer = BertTokenizer.from_pretrained('bert')
+tokenizer = BertTokenizerFast.from_pretrained('bert')
 
 with open('data/schemas.json', encoding='utf-8') as f:
     json_list = json.load(f)
@@ -76,16 +76,17 @@ def data_generator(data, batch_size=3):
     texts = []
     for i, d in enumerate(data):
         text = d['text']
+
         texts.append(text)
         encoding = tokenizer(text=text)
         input_ids, attention_mask = encoding.input_ids, encoding.attention_mask
         # 整理三元组 {s: [(o, p)]}
         spoes = {}
         for s, p, o in d['spo_list']:
-
+            # cls x x x sep
             s_encoding = tokenizer(text=s).input_ids[1:-1]
             o_encoding = tokenizer(text=o).input_ids[1:-1]
-
+            # 找对应的s与o的起始位置
             s_idx = search(s_encoding, input_ids)
             o_idx = search(o_encoding, input_ids)
 
@@ -107,7 +108,8 @@ def data_generator(data, batch_size=3):
             # 一个s对应多个o时，随机选一个subject
             start, end = np.array(list(spoes.keys())).T
             start = np.random.choice(start)
-            end = np.random.choice(end[end >= start])
+            # end = np.random.choice(end[end >= start])
+            end = end[end >= start][0]
             subject_ids = (start, end)
             # 对应的object标签
             object_labels = np.zeros((len(input_ids), len(predicate2id), 2))
@@ -130,7 +132,7 @@ def data_generator(data, batch_size=3):
                           torch.from_numpy(batch_input_ids).long(), torch.from_numpy(batch_attention_mask).long(),
                           torch.from_numpy(batch_subject_labels), torch.from_numpy(batch_subject_ids),
                           torch.from_numpy(batch_object_labels)
-                      ], None
+                      ]
                 batch_input_ids, batch_attention_mask = [], []
                 batch_subject_labels, batch_subject_ids, batch_object_labels = [], [], []
 
@@ -179,7 +181,6 @@ def train_func():
     pbar = tqdm(train_loader)
     for step, batch in enumerate(pbar):
         optim.zero_grad()
-        batch = batch[0]
         input_ids = batch[0].to(device)
         attention_mask = batch[1].to(device)
         subject_labels = batch[2].to(device)
@@ -204,10 +205,8 @@ def train_func():
         pbar.update()
         pbar.set_description(f'train loss:{loss.item()}')
 
-        if step % 1000 == 0:
+        if step % 1000 == 0 and step != 0:
             torch.save(model, 'graph_model.bin')
-
-        if step % 100 == 0 and step != 0:
             with torch.no_grad():
                 # texts = ['如何演好自己的角色，请读《演员自我修养》《喜剧之王》周星驰崛起于穷困潦倒之中的独门秘笈',
                 #          '茶树茶网蝽，Stephanitis chinensis Drake，属半翅目网蝽科冠网椿属的一种昆虫',
@@ -221,9 +220,11 @@ def train_func():
                     spo_ori = data['spo_list']
                     en = tokenizer(text=text, return_tensors='pt')
                     _, subject_preds = subject_model(en.input_ids.to(device), en.attention_mask.to(device))
+                    # !!!
                     subject_preds = subject_preds.cpu().data.numpy()
                     start = np.where(subject_preds[0, :, 0] > 0.6)[0]
                     end = np.where(subject_preds[0, :, 1] > 0.5)[0]
+
                     subjects = []
                     for i in start:
                         j = end[end >= i]
@@ -252,6 +253,7 @@ def train_func():
                                             predicate = id2predicate[str(predicate1)]
                                             # print(object, '\t', predicate)
                                             spo.append([subject, predicate, object])
+                    print(spo)
                     # 预测结果
                     R = set([SPO(_spo) for _spo in spo])
                     # 真实结果
@@ -273,4 +275,13 @@ def train_func():
 
 for epoch in range(100):
     print('************start train************')
+    # 训练
     train_func()
+    # min_loss = float('inf')
+    # dev_loss = dev_func()
+    # if min_loss > dev_loss:
+    #     min_loss = dev_loss
+    #     torch.save(model,'model.p')
+
+
+
